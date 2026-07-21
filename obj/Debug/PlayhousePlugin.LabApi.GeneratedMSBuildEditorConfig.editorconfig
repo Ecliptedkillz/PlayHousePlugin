@@ -1,0 +1,8 @@
+is_global = true
+build_property.RootNamespace = PlayhousePlugin
+build_property.ProjectDir = C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.CsWinRTUseWindowsUIXamlProjections = false
+build_property.EffectiveAnalysisLevelStyle = 
+build_property.EnableCodeStyleSeverity = 

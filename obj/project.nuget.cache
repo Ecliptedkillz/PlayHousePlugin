@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "am7xv4KOkWo=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\danie\\source\\repos\\PlayhousePlugin-main\\PlayhousePlugin.LabApi\\PlayhousePlugin.LabApi.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\danie\\.nuget\\packages\\lib.harmony\\2.3.6\\lib.harmony.2.3.6.nupkg.sha512"
+  ],
+  "logs": []
+}
