@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using LabApi.Events.Arguments.ServerEvents;
+using LabApi.Events.Handlers;
 using LabApi.Features;
 using LabApi.Features.Console;
 using LabApi.Features.Wrappers;
@@ -24,44 +26,30 @@ public sealed class PlayhousePlugin : Plugin<Config>
     public static PlayhousePlugin? Instance { get; private set; }
 
     public WebhookService? Webhooks { get; private set; }
-
     public DonatorRepository Donators { get; } = new();
-
     public StatisticsBridge? Statistics { get; private set; }
-
     public RuntimeState State { get; } = new();
-
     public PluginRuntime? Runtime { get; private set; }
-
     public BreakoutBlitzState BreakoutBlitz { get; } = new();
-
     public SillySundayService? SillySunday { get; private set; }
-
     public SchematicService Schematics { get; } = new();
-
     public CustomClassManager CustomClasses { get; } = new();
-
     public SurfaceReworkController? SurfaceRework { get; private set; }
-
     public RecyclingBinController? RecyclingBins { get; private set; }
-
     public VendingMachineController? VendingMachines { get; private set; }
-
     public ObjectivePointController? Objectives { get; private set; }
-
     public Containment106ObjectiveController? Containment106 { get; private set; }
-
     public CosmeticService? Cosmetics { get; private set; }
-
     public RainbowTagService? RainbowTags { get; private set; }
-
     public RainbowLightService? RainbowLights { get; private set; }
-
     public SprayService? Sprays { get; private set; }
 
     private CoreEventHandlers? eventHandlers;
     private PatchManager? patchManager;
     private AbilityKeybindSettings? abilityKeybindSettings;
+    private ScheduledHandle? mapFeatureSpawnHandle;
+    private bool serverEventsRegistered;
+    private bool disabling;
 
     public override string Name => "PlayhousePlugin";
 
@@ -70,7 +58,7 @@ public sealed class PlayhousePlugin : Plugin<Config>
 
     public override string Author => "";
 
-    public override Version Version => new(1, 1, 15);
+    public override Version Version => new(1, 1, 19);
 
     public override Version RequiredApiVersion =>
         new(LabApiProperties.CompiledVersion);
@@ -78,62 +66,30 @@ public sealed class PlayhousePlugin : Plugin<Config>
     public override void Enable()
     {
         Instance = this;
+        disabling = false;
 
         if (!Config.IsEnabled)
         {
             Logger.Info(
                 "PlayhousePlugin is disabled in its configuration.");
-
             return;
         }
 
         try
         {
-            Webhooks =
-                new WebhookService(Config.Webhooks);
+            Webhooks = new WebhookService(Config.Webhooks);
+            Runtime = PluginRuntime.Create();
 
-            /*
-             * PluginRuntime now only manages scheduled actions.
-             * Staff chat is captured through StaffChatLogPatch.
-             */
-            Runtime =
-                PluginRuntime.Create();
-
-            SurfaceRework =
-                new SurfaceReworkController(Schematics);
-
-            RecyclingBins =
-                new RecyclingBinController(
-                    Schematics,
-                    Runtime);
-
-            VendingMachines =
-                new VendingMachineController(
-                    Schematics,
-                    Runtime);
-
-            Objectives =
-                new ObjectivePointController(
-                    Schematics,
-                    Runtime);
-
+            SurfaceRework = new SurfaceReworkController(Schematics);
+            RecyclingBins = new RecyclingBinController(Schematics, Runtime);
+            VendingMachines = new VendingMachineController(Schematics, Runtime);
+            Objectives = new ObjectivePointController(Schematics, Runtime);
             Containment106 =
-                new Containment106ObjectiveController(
-                    Schematics,
-                    Runtime);
-
+                new Containment106ObjectiveController(Schematics, Runtime);
             Cosmetics =
-                new CosmeticService(
-                    Runtime,
-                    Schematics,
-                    Donators);
-
-            RainbowTags =
-                new RainbowTagService(Config);
-
-            RainbowLights =
-                new RainbowLightService(Runtime);
-
+                new CosmeticService(Runtime, Schematics, Donators);
+            RainbowTags = new RainbowTagService(Config);
+            RainbowLights = new RainbowLightService(Runtime);
             Sprays =
                 new SprayService(
                     Config.ExternalServices.SpraysDirectory,
@@ -141,19 +97,15 @@ public sealed class PlayhousePlugin : Plugin<Config>
 
             BreakoutBlitz.IsEnabled =
                 Config.GameModes.EnableBreakoutBlitz;
-
             BreakoutBlitz.RequiredScpKills =
                 Config.GameModes.BreakoutBlitzRequiredScpKills;
-
             BreakoutBlitz.RequiredClassDEscapes =
                 Config.GameModes.BreakoutBlitzRequiredClassDEscapes;
-
             BreakoutBlitz.RequiredScientistEscapes =
                 Config.GameModes.BreakoutBlitzRequiredScientistEscapes;
 
             bool automaticallyEnableSillySunday =
-                Config.GameModes
-                    .AutomaticallyEnableSillySundayOnSunday &&
+                Config.GameModes.AutomaticallyEnableSillySundayOnSunday &&
                 DateTime.Now.DayOfWeek == DayOfWeek.Sunday;
 
             SillySunday =
@@ -171,19 +123,15 @@ public sealed class PlayhousePlugin : Plugin<Config>
                     BreakoutBlitz.CleanupWorld);
             }
 
-            Runtime.Repeat(
-                0.25f,
-                RechargePlayerItems);
+            Runtime.Repeat(0.25f, RechargePlayerItems);
 
-            Donators.Load(
-                Config.ExternalServices.DonatorsCsvPath);
+            Donators.Load(Config.ExternalServices.DonatorsCsvPath);
 
             if (Config.ExternalServices.EnableStatisticsBridge)
             {
                 Statistics =
                     new StatisticsBridge(
-                        Config.ExternalServices
-                            .StatisticsWebSocketUrl);
+                        Config.ExternalServices.StatisticsWebSocketUrl);
             }
 
             eventHandlers =
@@ -197,19 +145,13 @@ public sealed class PlayhousePlugin : Plugin<Config>
                     CustomClasses);
 
             eventHandlers.Register();
+            RegisterServerEvents();
 
-            /*
-             * This applies StaffChatLogPatch along with the rest
-             * of your Harmony patches.
-             */
-            patchManager =
-                new PatchManager();
-
+            patchManager = new PatchManager();
             patchManager.Apply();
 
             abilityKeybindSettings =
-                new AbilityKeybindSettings(
-                    CustomClasses);
+                new AbilityKeybindSettings(CustomClasses);
 
             Logger.Info(
                 $"{Name} {Version} enabled with LabAPI " +
@@ -217,10 +159,132 @@ public sealed class PlayhousePlugin : Plugin<Config>
         }
         catch (Exception exception)
         {
-            Logger.Error(
-                $"Unable to enable {Name}: {exception}");
-
+            Logger.Error($"Unable to enable {Name}: {exception}");
             Disable();
+        }
+    }
+
+    private void RegisterServerEvents()
+    {
+        if (serverEventsRegistered)
+            return;
+
+        ServerEvents.MapGenerated += OnMapGenerated;
+        ServerEvents.RoundStarted += OnRoundStarted;
+        ServerEvents.RoundEnded += OnRoundEnded;
+        ServerEvents.WaitingForPlayers += OnWaitingForPlayers;
+        ServerEvents.RoundRestarted += OnRoundRestarted;
+
+        serverEventsRegistered = true;
+    }
+
+    private void UnregisterServerEvents()
+    {
+        if (!serverEventsRegistered)
+            return;
+
+        ServerEvents.MapGenerated -= OnMapGenerated;
+        ServerEvents.RoundStarted -= OnRoundStarted;
+        ServerEvents.RoundEnded -= OnRoundEnded;
+        ServerEvents.WaitingForPlayers -= OnWaitingForPlayers;
+        ServerEvents.RoundRestarted -= OnRoundRestarted;
+
+        serverEventsRegistered = false;
+    }
+
+    private void OnMapGenerated(MapGeneratedEventArgs ev)
+    {
+        // Prepare map features after room generation. Do not start the
+        // objective timeline here because the round has not started yet.
+        ScheduleMapFeatureSpawn(1f, "map generated", false);
+    }
+
+    private void OnRoundStarted()
+    {
+        // This replaces the MapGenerated spawn callback, performs one final
+        // clean spawn, and then starts the CASSIE objective timeline.
+        ScheduleMapFeatureSpawn(1f, "round started", true);
+    }
+
+    private void OnRoundEnded(RoundEndedEventArgs ev)
+    {
+        CleanupRoundMapFeatures("round ended");
+    }
+
+    private void OnWaitingForPlayers()
+    {
+        CleanupRoundMapFeatures("waiting for players");
+    }
+
+    private void OnRoundRestarted()
+    {
+        CleanupRoundMapFeatures("round restarted");
+    }
+
+    private void ScheduleMapFeatureSpawn(
+        float delaySeconds,
+        string reason,
+        bool startObjectiveTimeline)
+    {
+        if (disabling || Runtime is null)
+            return;
+
+        mapFeatureSpawnHandle?.Dispose();
+        mapFeatureSpawnHandle = Runtime.Schedule(
+            delaySeconds,
+            () =>
+            {
+                mapFeatureSpawnHandle = null;
+
+                if (disabling)
+                    return;
+
+                try
+                {
+                    // Each Spawn method first destroys the previous round's
+                    // objects, so duplicate event calls cannot duplicate them.
+                    VendingMachines?.Spawn();
+                    Objectives?.Spawn();
+
+                    // Spawn() clears the old objective timeline, so this must
+                    // always be called after Spawn(), never before it.
+                    if (startObjectiveTimeline)
+                    {
+                        Objectives?.StartTimeline();
+                        Logger.Info(
+                            "[Objectives] CASSIE timeline scheduled after round start.");
+                    }
+
+                    Logger.Info(
+                        $"[Map Features] Vending machines and terminals " +
+                        $"started spawning after {reason}.");
+                }
+                catch (Exception exception)
+                {
+                    Logger.Error(
+                        $"[Map Features] Failed to spawn vending machines " +
+                        $"or terminals after {reason}: {exception}");
+                }
+            });
+    }
+
+    private void CleanupRoundMapFeatures(string reason)
+    {
+        mapFeatureSpawnHandle?.Dispose();
+        mapFeatureSpawnHandle = null;
+
+        try
+        {
+            VendingMachines?.Destroy();
+            Objectives?.Destroy();
+
+            Logger.Info(
+                $"[Map Features] Cleaned vending machines and terminals: {reason}.");
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(
+                $"[Map Features] Cleanup failed during {reason}: {exception}");
         }
     }
 
@@ -228,11 +292,8 @@ public sealed class PlayhousePlugin : Plugin<Config>
     {
         foreach (Player player in Player.ReadyList)
         {
-            foreach (RadioItem radio in
-                     player.Items.OfType<RadioItem>())
-            {
+            foreach (RadioItem radio in player.Items.OfType<RadioItem>())
                 radio.BatteryPercent = 100;
-            }
 
             bool refillFirearms =
                 SillySunday?.NerfWar == true ||
@@ -242,24 +303,24 @@ public sealed class PlayhousePlugin : Plugin<Config>
             if (!refillFirearms)
                 continue;
 
-            foreach (FirearmItem firearm in
-                     player.Items.OfType<FirearmItem>())
-            {
-                firearm.StoredAmmo =
-                    firearm.MaxAmmo;
-            }
+            foreach (FirearmItem firearm in player.Items.OfType<FirearmItem>())
+                firearm.StoredAmmo = firearm.MaxAmmo;
         }
     }
 
     public override void Disable()
     {
+        if (disabling)
+            return;
+
+        disabling = true;
+
+        UnregisterServerEvents();
+        CleanupRoundMapFeatures("plugin disabled");
+
         eventHandlers?.Unregister();
         eventHandlers = null;
 
-        /*
-         * Remove Harmony patches before disposing Webhooks,
-         * because StaffChatLogPatch uses the shared service.
-         */
         patchManager?.Remove();
         patchManager = null;
 
@@ -269,17 +330,8 @@ public sealed class PlayhousePlugin : Plugin<Config>
         Statistics?.Dispose();
         Statistics = null;
 
-        if (Runtime is not null)
-        {
-            UnityObject.Destroy(
-                Runtime.gameObject);
-
-            Runtime = null;
-        }
-
-        Webhooks?.Dispose();
-        Webhooks = null;
-
+        // Dispose controllers before destroying the runtime because their
+        // cleanup methods cancel ScheduledHandle instances owned by it.
         RecyclingBins?.Dispose();
         RecyclingBins = null;
 
@@ -307,17 +359,21 @@ public sealed class PlayhousePlugin : Plugin<Config>
         Sprays?.Reset();
         Sprays = null;
 
+        if (Runtime is not null)
+        {
+            UnityObject.Destroy(Runtime.gameObject);
+            Runtime = null;
+        }
+
+        Webhooks?.Dispose();
+        Webhooks = null;
+
         Schematics.DestroyAll();
-
         SurfaceRework = null;
-
         CustomClasses.Clear();
-
         BreakoutBlitz.IsEnabled = false;
 
-        Logger.Info(
-            $"{Name} disabled.");
-
+        Logger.Info($"{Name} disabled.");
         Instance = null;
     }
 }

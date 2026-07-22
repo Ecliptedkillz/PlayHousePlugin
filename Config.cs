@@ -221,6 +221,9 @@ public sealed class WebhookConfig
     [Description("Discord webhook used for staff-chat messages. Leave empty to disable this destination.")]
     public string StaffChatUrl { get; set; } = string.Empty;
 
+    [Description("Discord webhook used for detained-kill and suspected undetain-to-kill alerts. Leave empty to disable this destination.")]
+    public string DetainedKillsUrl { get; set; } = string.Empty;
+
     public string Username { get; set; } = "PlayhousePlugin";
 
     public string AvatarUrl { get; set; } = string.Empty;
