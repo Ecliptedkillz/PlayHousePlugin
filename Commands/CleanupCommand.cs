@@ -19,17 +19,40 @@ public sealed class CleanupCommand : ICommand
             response = "Usage: cleanup <ragdolls|items|all>";
             return false;
         }
+
         string target = arguments.At(0).ToLowerInvariant();
-        if (target is "bodies" or "body" or "ragdoll" or "ragdolls" or "all")
-            foreach (Ragdoll ragdoll in Ragdoll.List.ToArray()) ragdoll.Destroy();
-        if (target is "items" or "all")
-            foreach (Pickup pickup in Pickup.List.ToArray()) pickup.Destroy();
-        if (target is not ("bodies" or "body" or "ragdoll" or "ragdolls" or "items" or "all"))
+
+        bool cleanupRagdolls = target is "body" or "bodies" or "ragdoll" or "ragdolls" or "all";
+        bool cleanupItems = target is "item" or "items" or "all";
+
+        if (!cleanupRagdolls && !cleanupItems)
         {
             response = "Usage: cleanup <ragdolls|items|all>";
             return false;
         }
-        response = $"Cleaned up {target}.";
+
+        int ragdollCount = 0;
+        int itemCount = 0;
+
+        if (cleanupRagdolls)
+        {
+            var ragdolls = Ragdoll.List.ToArray();
+            ragdollCount = ragdolls.Length;
+
+            foreach (var ragdoll in ragdolls)
+                ragdoll.Destroy();
+        }
+
+        if (cleanupItems)
+        {
+            var pickups = Pickup.List.ToArray();
+            itemCount = pickups.Length;
+
+            foreach (var pickup in pickups)
+                pickup.Destroy();
+        }
+
+        response = $"Cleanup complete. Removed {ragdollCount} ragdolls and {itemCount} pickups.";
         return true;
     }
 }

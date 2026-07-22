@@ -12,21 +12,16 @@ public sealed class PluginRuntime : MonoBehaviour
     public static PluginRuntime Create()
     {
         var gameObject = new GameObject("PlayhousePlugin.Runtime");
-
         DontDestroyOnLoad(gameObject);
-
         return gameObject.AddComponent<PluginRuntime>();
     }
 
-    public ScheduledHandle Schedule(
-        float delaySeconds,
-        Action action)
+    public ScheduledHandle Schedule(float delaySeconds, Action action)
     {
         if (action is null)
             throw new ArgumentNullException(nameof(action));
 
         var handle = new ScheduledHandle();
-
         float delay = Mathf.Max(0f, delaySeconds);
 
         work.Add(
@@ -39,9 +34,7 @@ public sealed class PluginRuntime : MonoBehaviour
         return handle;
     }
 
-    public ScheduledHandle Repeat(
-        float intervalSeconds,
-        Action action)
+    public ScheduledHandle Repeat(float intervalSeconds, Action action)
     {
         if (action is null)
             throw new ArgumentNullException(nameof(action));
@@ -78,9 +71,7 @@ public sealed class PluginRuntime : MonoBehaviour
     {
         float now = Time.realtimeSinceStartup;
 
-        for (int index = work.Count - 1;
-             index >= 0;
-             index--)
+        for (int index = work.Count - 1; index >= 0; index--)
         {
             ScheduledWork scheduled = work[index];
 
@@ -99,20 +90,16 @@ public sealed class PluginRuntime : MonoBehaviour
             }
             catch (Exception exception)
             {
-                LabLogger.Error(
-                    $"Scheduled task failed: {exception}");
+                LabLogger.Error($"Scheduled task failed: {exception}");
             }
 
-            if (scheduled.Handle.IsCancelled ||
-                scheduled.Interval <= 0f)
+            if (scheduled.Handle.IsCancelled || scheduled.Interval <= 0f)
             {
                 work.RemoveAt(index);
                 continue;
             }
 
-            scheduled.NextRun =
-                now + scheduled.Interval;
-
+            scheduled.NextRun = now + scheduled.Interval;
             work[index] = scheduled;
         }
     }
@@ -120,7 +107,6 @@ public sealed class PluginRuntime : MonoBehaviour
     private void OnDestroy()
     {
         StopAll();
-
         LabLogger.Info("PluginRuntime destroyed.");
     }
 
@@ -139,11 +125,8 @@ public sealed class PluginRuntime : MonoBehaviour
         }
 
         public float NextRun;
-
         public readonly float Interval;
-
         public readonly Action Action;
-
         public readonly ScheduledHandle Handle;
     }
 }

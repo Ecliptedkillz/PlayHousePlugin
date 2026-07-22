@@ -6,7 +6,7 @@ C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debu
 C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\PlayhousePlugin.LabApi.AssemblyInfoInputs.cache
 C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\PlayhousePlugin.LabApi.AssemblyInfo.cs
 C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\PlayhousePlugin.LabApi.csproj.CoreCompileInputs.cache
+C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\PlayhousePlugin.LabApi.sourcelink.json
 C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\Playhous.86306E6D.Up2Date
 C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\PlayhousePlugin.dll
 C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\PlayhousePlugin.pdb
-C:\Users\danie\source\repos\PlayhousePlugin-main\PlayhousePlugin.LabApi\obj\Debug\PlayhousePlugin.LabApi.sourcelink.json

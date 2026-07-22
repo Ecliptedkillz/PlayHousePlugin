@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CustomPlayerEffects;
 using LabApi.Events.Arguments.PlayerEvents;
 using Logger = LabApi.Features.Console.Logger;
 using LabApi.Features.Wrappers;
@@ -27,8 +28,11 @@ public sealed class ObjectivePointController : IDisposable
     private readonly Dictionary<ushort, ObjectivePointComponent> buttons = new();
     private readonly List<ScheduledHandle> timeline = new();
 
+    private ScheduledHandle? startupLoop;
     private ScheduledHandle? objectiveLoop;
     private ScheduledHandle? yellowFadeLoop;
+    private ScheduledHandle? deconLoop;
+    private ScheduledHandle? deconLightLoop;
     private readonly Dictionary<LightsController, Color> originalLightColors = new();
 
     public ObjectivePointController(SchematicService schematics, PluginRuntime runtime)
@@ -49,6 +53,29 @@ public sealed class ObjectivePointController : IDisposable
     public void Spawn()
     {
         Destroy();
+
+        // Room.List can briefly be empty while a new map is finishing setup.
+        // Retry until both required zones exist instead of silently spawning
+        // zero terminals for the entire round.
+        startupLoop = runtime.Repeat(1f, TrySpawnObjectives);
+        TrySpawnObjectives();
+    }
+
+    private void TrySpawnObjectives()
+    {
+        if (objectives.Count > 0)
+            return;
+
+        bool hasEntrance = Room.List.Any(
+            room => room is not null &&
+                    room.Zone == FacilityZone.Entrance);
+
+        bool hasHeavy = Room.List.Any(
+            room => room is not null &&
+                    room.Zone == FacilityZone.HeavyContainment);
+
+        if (!hasEntrance || !hasHeavy)
+            return;
 
         ObjectiveConfig config =
             PlayhousePlugin.Instance?.Config.MapFeatures.Objectives
@@ -71,6 +98,16 @@ public sealed class ObjectivePointController : IDisposable
                 $"[Objectives] Spawned {objectives.Count}/{TotalObjectives} terminals.");
         }
 
+        startupLoop?.Dispose();
+        startupLoop = null;
+
+        if (objectives.Count == 0)
+        {
+            Logger.Warn(
+                "[Objectives] Map rooms were ready, but no configured terminal placements matched this map.");
+            return;
+        }
+
         float interval = Math.Max(0.05f, config.UpdateInterval);
         objectiveLoop = runtime.Repeat(interval, Tick);
     }
@@ -78,16 +115,22 @@ public sealed class ObjectivePointController : IDisposable
     public void StartTimeline()
     {
         ClearTimeline();
+        Logger.Info("[Objectives] Starting objective CASSIE timeline.");
 
-        // Initial warning: 10 seconds after the timeline starts.
-        timeline.Add(runtime.Schedule(10f, () =>
+        // Give the round announcer a brief moment to initialize, then play
+        // the opening objective warning.
+        timeline.Add(runtime.Schedule(2f, () =>
         {
+            Logger.Info("[Objectives] Sending initial decontamination CASSIE announcement.");
+
             Announcer.Message(
                 "pitch_0.3 .g5 .g5 pitch_0.95 alert alert . facility will attempt a site wide decontamination . all decontamination terminals must be enabled in 18 minutes pitch_0.3 .g5 .g5",
                 string.Empty,
                 true,
                 0,
                 1);
+
+            Logger.Info("[Objectives] Initial decontamination CASSIE announcement submitted.");
         
             foreach (PluginLightBlink light in PluginLightBlink.Instances.ToArray())
             {
@@ -656,6 +699,17 @@ public sealed class ObjectivePointController : IDisposable
             0,
             1);
 
+        StartDeconLightPulse();
+
+        // Keep checking the affected zones so players who enter after
+        // decontamination starts also receive the effect.
+        deconLoop?.Dispose();
+        deconLoop = runtime.Repeat(0.5f, ApplyDeconEffects);
+        ApplyDeconEffects();
+    }
+
+    private void ApplyDeconEffects()
+    {
         foreach (Player player in Player.ReadyList)
         {
             if (!player.IsAlive)
@@ -667,8 +721,38 @@ public sealed class ObjectivePointController : IDisposable
                 continue;
             }
 
-            player.Kill("Facility decontamination", string.Empty);
+            // HeartAttack deals damage over time instead of instantly
+            // killing the player.
+            player.EnableEffect<CardiacArrest>();
         }
+    }
+
+    private void StartDeconLightPulse()
+    {
+        deconLightLoop?.Dispose();
+        deconLightLoop = null;
+
+        LightsController[] affectedLights = Room.List
+            .Where(room =>
+                room.Zone == FacilityZone.HeavyContainment ||
+                room.Zone == FacilityZone.Entrance)
+            .SelectMany(room => room.AllLightControllers)
+            .Where(controller => controller is not null)
+            .Distinct()
+            .ToArray();
+
+        bool lightsOn = true;
+
+        // Match the old objective-light behavior: alternate the active
+        // color and black every quarter second.
+        deconLightLoop = runtime.Repeat(0.25f, () =>
+        {
+            lightsOn = !lightsOn;
+            Color color = lightsOn ? Color.yellow : Color.black;
+
+            foreach (LightsController controller in affectedLights)
+                controller.OverrideLightsColor = color;
+        });
     }
 
     private void ClearTimeline()
@@ -681,11 +765,30 @@ public sealed class ObjectivePointController : IDisposable
 
     public void Destroy()
     {
+        startupLoop?.Dispose();
+        startupLoop = null;
+
         objectiveLoop?.Dispose();
         objectiveLoop = null;
 
         yellowFadeLoop?.Dispose();
         yellowFadeLoop = null;
+
+        deconLoop?.Dispose();
+        deconLoop = null;
+
+        deconLightLoop?.Dispose();
+        deconLightLoop = null;
+
+        foreach (KeyValuePair<LightsController, Color> pair in originalLightColors.ToArray())
+        {
+            LightsController controller = pair.Key;
+            Color color = pair.Value;
+
+            if (controller is not null)
+                controller.OverrideLightsColor = color;
+        }
+
         originalLightColors.Clear();
 
         ClearTimeline();

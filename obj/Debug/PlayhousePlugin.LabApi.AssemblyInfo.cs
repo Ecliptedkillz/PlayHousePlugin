@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PlayhousePlugin")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+47621d41bb9440b4bb92d79bdf471aba46ec5efa")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e402ad1b2c996973c09207b850fd10957cf94e9f")]
 [assembly: System.Reflection.AssemblyProductAttribute("PlayhousePlugin")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PlayhousePlugin")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

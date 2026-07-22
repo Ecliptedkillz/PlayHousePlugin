@@ -13,6 +13,38 @@ public static class StaffChatLogPatch
 {
     private const string StaffChatPrefix = "[AC ";
 
+    // Per-user rate limit.
+    private const int MaximumMessagesPerUser = 5;
+    private static readonly TimeSpan UserRateLimitWindow =
+        TimeSpan.FromSeconds(10);
+
+    // Global rate limit protects the webhook from coordinated spam.
+    private const int MaximumGlobalMessages = 20;
+    private static readonly TimeSpan GlobalRateLimitWindow =
+        TimeSpan.FromSeconds(10);
+
+    // Prevent the same message from being logged repeatedly.
+    private static readonly TimeSpan DuplicateMessageWindow =
+        TimeSpan.FromSeconds(3);
+
+    // Periodically remove inactive rate-limit entries.
+    private static readonly TimeSpan CleanupInterval =
+        TimeSpan.FromMinutes(5);
+
+    private static readonly object RateLimitLock = new();
+
+    private static readonly Dictionary<string, RateLimitEntry>
+        UserRateLimits =
+            new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly Queue<DateTime> GlobalMessageTimes = new();
+
+    private static readonly Dictionary<string, DateTime>
+        RecentMessages =
+            new(StringComparer.Ordinal);
+
+    private static DateTime lastCleanupUtc = DateTime.UtcNow;
+
     private static IEnumerable<MethodBase> TargetMethods()
     {
         Type? serverLogsType =
@@ -216,6 +248,19 @@ public static class StaffChatLogPatch
         string senderUserId,
         string message)
     {
+        if (!TryPassRateLimit(
+                senderName,
+                senderUserId,
+                message,
+                out string rejectionReason))
+        {
+            LabLogger.Warn(
+                $"Staff-chat webhook message was rate limited. " +
+                $"Sender='{senderName}', Reason='{rejectionReason}'.");
+
+            return;
+        }
+
         WebhookService? webhook =
             PlayhousePlugin.Instance?.Webhooks;
 
@@ -252,6 +297,130 @@ public static class StaffChatLogPatch
             webhookContent);
     }
 
+    private static bool TryPassRateLimit(
+        string senderName,
+        string senderUserId,
+        string message,
+        out string rejectionReason)
+    {
+        rejectionReason = string.Empty;
+
+        DateTime nowUtc = DateTime.UtcNow;
+
+        string senderKey =
+            !string.IsNullOrWhiteSpace(senderUserId)
+                ? senderUserId.Trim()
+                : senderName.Trim();
+
+        if (string.IsNullOrWhiteSpace(senderKey))
+            senderKey = "unknown";
+
+        string duplicateKey =
+            senderKey + "\n" + message.Trim();
+
+        lock (RateLimitLock)
+        {
+            CleanupExpiredEntries(nowUtc);
+
+            // Block exact duplicate messages for a brief period.
+            if (RecentMessages.TryGetValue(
+                    duplicateKey,
+                    out DateTime previousMessageTime) &&
+                nowUtc - previousMessageTime <
+                DuplicateMessageWindow)
+            {
+                rejectionReason = "duplicate message";
+                return false;
+            }
+
+            // Remove expired global timestamps.
+            while (GlobalMessageTimes.Count > 0 &&
+                   nowUtc - GlobalMessageTimes.Peek() >=
+                   GlobalRateLimitWindow)
+            {
+                GlobalMessageTimes.Dequeue();
+            }
+
+            if (GlobalMessageTimes.Count >=
+                MaximumGlobalMessages)
+            {
+                rejectionReason =
+                    $"global limit of {MaximumGlobalMessages} " +
+                    $"messages per " +
+                    $"{GlobalRateLimitWindow.TotalSeconds:0} seconds";
+
+                return false;
+            }
+
+            if (!UserRateLimits.TryGetValue(
+                    senderKey,
+                    out RateLimitEntry? entry))
+            {
+                entry = new RateLimitEntry();
+                UserRateLimits[senderKey] = entry;
+            }
+
+            while (entry.MessageTimes.Count > 0 &&
+                   nowUtc - entry.MessageTimes.Peek() >=
+                   UserRateLimitWindow)
+            {
+                entry.MessageTimes.Dequeue();
+            }
+
+            if (entry.MessageTimes.Count >=
+                MaximumMessagesPerUser)
+            {
+                rejectionReason =
+                    $"user limit of {MaximumMessagesPerUser} " +
+                    $"messages per " +
+                    $"{UserRateLimitWindow.TotalSeconds:0} seconds";
+
+                return false;
+            }
+
+            entry.MessageTimes.Enqueue(nowUtc);
+            entry.LastActivityUtc = nowUtc;
+
+            GlobalMessageTimes.Enqueue(nowUtc);
+            RecentMessages[duplicateKey] = nowUtc;
+
+            return true;
+        }
+    }
+
+    private static void CleanupExpiredEntries(
+        DateTime nowUtc)
+    {
+        if (nowUtc - lastCleanupUtc < CleanupInterval)
+            return;
+
+        lastCleanupUtc = nowUtc;
+
+        DateTime userExpiration =
+            nowUtc - UserRateLimitWindow;
+
+        string[] expiredUsers = UserRateLimits
+            .Where(pair =>
+                pair.Value.LastActivityUtc < userExpiration)
+            .Select(pair => pair.Key)
+            .ToArray();
+
+        foreach (string user in expiredUsers)
+            UserRateLimits.Remove(user);
+
+        DateTime duplicateExpiration =
+            nowUtc - DuplicateMessageWindow;
+
+        string[] expiredMessages = RecentMessages
+            .Where(pair =>
+                pair.Value < duplicateExpiration)
+            .Select(pair => pair.Key)
+            .ToArray();
+
+        foreach (string duplicate in expiredMessages)
+            RecentMessages.Remove(duplicate);
+    }
+
     private static string EscapeDiscord(string value)
     {
         if (string.IsNullOrEmpty(value))
@@ -261,5 +430,13 @@ public static class StaffChatLogPatch
             .Replace("@everyone", "@\u200Beveryone")
             .Replace("@here", "@\u200Bhere")
             .Replace("```", "``\u200B`");
+    }
+
+    private sealed class RateLimitEntry
+    {
+        public Queue<DateTime> MessageTimes { get; } = new();
+
+        public DateTime LastActivityUtc { get; set; } =
+            DateTime.UtcNow;
     }
 }

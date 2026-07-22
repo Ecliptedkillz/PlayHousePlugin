@@ -230,6 +230,8 @@ public sealed class JailCommand : ICommand
 [CommandHandler(typeof(RemoteAdminCommandHandler))]
 public sealed class MiniBossCommand : ICommand
 {
+    private static readonly HashSet<int> MiniBosses = new();
+
     public string Command => "miniboss";
 
     public string[] Aliases => new[]
@@ -239,7 +241,7 @@ public sealed class MiniBossCommand : ICommand
         "boss",
     };
 
-    public string Description => "Turns selected players into legacy mini-bosses.";
+    public string Description => "Toggles mini-boss mode on selected players.";
 
     public bool Execute(
         ArraySegment<string> arguments,
@@ -258,7 +260,8 @@ public sealed class MiniBossCommand : ICommand
             return false;
         }
 
-        int changed = 0;
+        int enabled = 0;
+        int disabled = 0;
         List<string> notFound = new();
 
         foreach (string argument in arguments)
@@ -271,16 +274,39 @@ public sealed class MiniBossCommand : ICommand
                 continue;
             }
 
+            // Toggle mini-boss mode off.
+            if (MiniBosses.Remove(player.PlayerId))
+            {
+                player.Scale = Vector3.one;
+                player.DisableEffect<Scp207>();
+
+                player.MaxHealth = 100f;
+                player.Health = 100f;
+
+                disabled++;
+                continue;
+            }
+
+            // Toggle mini-boss mode on.
+            MiniBosses.Add(player.PlayerId);
+
+            Vector3 previousPosition = player.Position;
+            Quaternion previousRotation = player.Rotation;
+            int playerId = player.PlayerId;
+
             player.SetRole(
                 RoleTypeId.ChaosRepressor,
                 RoleChangeReason.RemoteAdmin,
                 RoleSpawnFlags.All
             );
 
-            PlayhousePlugin.Instance?.Runtime?.Schedule(0.5f, () =>
+            PlayhousePlugin.Instance?.Runtime?.Schedule(0.75f, () =>
             {
-                if (!PlayerFinder.IsConnected(player))
+                if (!PlayerFinder.IsConnected(player) ||
+                    !MiniBosses.Contains(playerId))
+                {
                     return;
+                }
 
                 player.ClearInventory();
                 player.AddItem(ItemType.GunLogicer);
@@ -289,14 +315,16 @@ public sealed class MiniBossCommand : ICommand
                 player.Health = 15000f;
 
                 player.EnableEffect<Scp207>(4, 0);
-                player.Position = new Vector3(-17f, 994f, -58f);
+
+                player.Position = previousPosition;
+                player.Rotation = previousRotation;
                 player.Scale = Vector3.one * 2f;
             });
 
-            changed++;
+            enabled++;
         }
 
-        if (changed == 0)
+        if (enabled == 0 && disabled == 0)
         {
             response = notFound.Count > 0
                 ? $"No players found: {string.Join(", ", notFound)}"
@@ -305,7 +333,7 @@ public sealed class MiniBossCommand : ICommand
             return false;
         }
 
-        response = $"Created {changed} mini-boss(es).";
+        response = $"Mini-boss enabled for {enabled} and disabled for {disabled} player(s).";
 
         if (notFound.Count > 0)
             response += $" Not found: {string.Join(", ", notFound)}.";

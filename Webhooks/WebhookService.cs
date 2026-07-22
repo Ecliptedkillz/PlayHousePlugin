@@ -458,6 +458,7 @@ public sealed class WebhookService : IDisposable
             WebhookDestination.GameLogs => config.GameLogsUrl,
             WebhookDestination.PvpLogs => config.PvpLogsUrl,
             WebhookDestination.StaffChat => config.StaffChatUrl,
+            WebhookDestination.DetainedKills => config.DetainedKillsUrl,
             _ => string.Empty,
         };
     }

@@ -5,4 +5,5 @@ public enum WebhookDestination
     GameLogs,
     PvpLogs,
     StaffChat,
+    DetainedKills,
 }

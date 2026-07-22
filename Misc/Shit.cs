@@ -1,11 +1,14 @@
 using System;
 using System.Linq;
 using CommandSystem;
+using LabApi.Features.Console;
 using LabApi.Features.Wrappers;
 using MapGeneration;
 using Mirror;
+using Mirror.LiteNetLib4Mirror;
 using RemoteAdmin;
 using UnityEngine;
+using LabLogger = LabApi.Features.Console.Logger;
 
 namespace PlayhousePlugin.Commands;
 
@@ -38,44 +41,80 @@ public sealed class ShitCommand : ICommand
             return false;
         }
 
-        if (player.Room is null ||
-            player.Room.Name != RoomName.LczToilets)
+        Room? room = player.Room;
+
+        if (room is null || room.Name != RoomName.LczToilets)
         {
-            response = "You're not in the right place to shit yourself.";
+            response = room is null
+                ? "Your current room could not be detected."
+                : $"You're not in the LCZ bathroom. Current room: {room.Name}";
+
             return false;
         }
 
-        NetworkManager? networkManager = NetworkManager.singleton;
+        LiteNetLib4MirrorNetworkManager? networkManager =
+            LiteNetLib4MirrorNetworkManager.singleton;
 
         if (networkManager is null)
         {
-            response = "The network manager is unavailable.";
+            response = "The SCP:SL network manager is unavailable.";
             return false;
         }
 
         GameObject? tantrumPrefab = networkManager.spawnPrefabs
             .FirstOrDefault(prefab =>
-                prefab != null &&
+                prefab is not null &&
                 prefab.name.Equals(
                     "TantrumObj",
                     StringComparison.OrdinalIgnoreCase));
 
         if (tantrumPrefab is null)
+           {
+        string prefabs = string.Join(
+            ", ",
+            networkManager.spawnPrefabs
+                .Where(prefab => prefab is not null)
+                .Select(prefab => prefab.name)
+                .Where(name =>
+                    !string.IsNullOrWhiteSpace(name) &&
+                    name.IndexOf(
+                        "Tantrum",
+                        StringComparison.OrdinalIgnoreCase) >= 0));
+    
+        response = string.IsNullOrWhiteSpace(prefabs)
+            ? "Could not find the TantrumObj prefab."
+            : $"TantrumObj was not found. Similar prefabs: {prefabs}";
+    
+        return false;
+    }
+
+        try
         {
-            response = "Could not find the TantrumObj prefab.";
+            GameObject tantrumObject =
+                UnityEngine.Object.Instantiate(tantrumPrefab);
+
+            Vector3 spawnPosition =
+                player.Position + Vector3.up * 0.15f;
+
+            tantrumObject.transform.SetPositionAndRotation(
+                spawnPosition,
+                Quaternion.Euler(0f, player.Rotation.y, 0f));
+
+            NetworkServer.Spawn(tantrumObject);
+
+            LabLogger.Info(
+                $"Spawned TantrumObj for {player.Nickname} " +
+                $"in {room.Name} at {spawnPosition}.");
+
+            response = "Shitting time.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            LabLogger.Error($"Failed to spawn TantrumObj:\n{exception}");
+
+            response = $"Failed to spawn it: {exception.Message}";
             return false;
         }
-
-        GameObject tantrumObject =
-            UnityEngine.Object.Instantiate(tantrumPrefab);
-
-        tantrumObject.transform.SetPositionAndRotation(
-            player.Position,
-            Quaternion.identity);
-
-        NetworkServer.Spawn(tantrumObject);
-
-        response = "Shitting time.";
-        return true;
     }
 }
