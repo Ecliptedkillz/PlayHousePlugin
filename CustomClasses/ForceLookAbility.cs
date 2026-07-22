@@ -90,6 +90,14 @@ public sealed class ForceLookAbility : AbilityBase, IDisposable
 
         activeForceLook?.Dispose();
 
+        foreach (Player target in targets)
+        {
+            target.SendHint(
+                "<size=28><color=#ff3b3b><b>You cannot look away!</b></color>\n" +
+                "<color=white>You feel an irresistible force pulling your eyes toward its face.</color></size>",
+                Duration);
+        }
+
         activeForceLook = runtime.Repeat(
             UpdateInterval,
             UpdateForceLook);
